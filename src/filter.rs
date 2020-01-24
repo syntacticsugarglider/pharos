@@ -1,4 +1,4 @@
-use crate :: { import::* };
+use crate::import::*;
 
 /// Predicate for filtering events.
 ///
@@ -41,64 +41,56 @@ use crate :: { import::* };
 /// ```
 //
 pub enum Filter<Event>
-
-	where Event: Clone + 'static + Send ,
-
+where
+    Event: Clone + 'static + Sync + Send,
 {
-	/// A function pointer to a predicate to filter events.
-	//
-	Pointer( fn(&Event) -> bool ),
+    /// A function pointer to a predicate to filter events.
+    //
+    Pointer(fn(&Event) -> bool),
 
-	/// A boxed closure to a predicate to filter events.
-	//
-	Closure( Box<dyn FnMut(&Event) -> bool + Send> ),
+    /// A boxed closure to a predicate to filter events.
+    //
+    Closure(Box<dyn FnMut(&Event) -> bool + Sync + Send>),
 }
 
-
-impl<Event> Filter<Event>  where Event: Clone + 'static + Send
+impl<Event> Filter<Event>
+where
+    Event: Clone + 'static + Sync + Send,
 {
-	/// Invoke the predicate.
-	//
-	pub(crate) fn call( &mut self, evt: &Event ) -> bool
-	{
-		match self
-		{
-			Self::Pointer(f) => f(evt),
-			Self::Closure(f) => f(evt),
-		}
-	}
+    /// Invoke the predicate.
+    //
+    pub(crate) fn call(&mut self, evt: &Event) -> bool {
+        match self {
+            Self::Pointer(f) => f(evt),
+            Self::Closure(f) => f(evt),
+        }
+    }
 }
 
-
-impl<Event> fmt::Debug for Filter<Event>  where Event: Clone + 'static + Send
+impl<Event> fmt::Debug for Filter<Event>
+where
+    Event: Clone + 'static + Sync + Send,
 {
-	fn fmt( &self, f: &mut fmt::Formatter<'_> ) -> fmt::Result
-	{
-		match self
-		{
-			Self::Pointer(_) => write!( f, "pharos::Filter<{}>::Pointer(_)", type_name::<Event>() ),
-			Self::Closure(_) => write!( f, "pharos::Filter<{}>::Closure(_)", type_name::<Event>() ),
-		}
-
-	}
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Pointer(_) => write!(f, "pharos::Filter<{}>::Pointer(_)", type_name::<Event>()),
+            Self::Closure(_) => write!(f, "pharos::Filter<{}>::Closure(_)", type_name::<Event>()),
+        }
+    }
 }
 
-
-
-#[ cfg( test ) ]
+#[cfg(test)]
 //
-mod tests
-{
-	use super::*;
+mod tests {
+    use super::*;
 
-	#[test]
-	//
-	fn debug()
-	{
-		let f = Filter::Pointer(           |b| *b   );
-		let g = Filter::Closure( Box::new( |b| *b ) );
+    #[test]
+    //
+    fn debug() {
+        let f = Filter::Pointer(|b| *b);
+        let g = Filter::Closure(Box::new(|b| *b));
 
-		assert_eq!( "pharos::Filter<bool>::Pointer(_)", &format!( "{:?}", f ) );
-		assert_eq!( "pharos::Filter<bool>::Closure(_)", &format!( "{:?}", g ) );
-	}
+        assert_eq!("pharos::Filter<bool>::Pointer(_)", &format!("{:?}", f));
+        assert_eq!("pharos::Filter<bool>::Closure(_)", &format!("{:?}", g));
+    }
 }

@@ -1,48 +1,51 @@
-#![ allow( unused_variables, dead_code ) ]
+#![allow(unused_variables, dead_code)]
 
 use pharos::*;
 
-#[ derive( Clone, Debug, PartialEq, Copy ) ]
+#[derive(Clone, Debug, PartialEq, Copy)]
 //
-enum NetworkEvent
-{
-	 Open    ,
-	 Error   ,
-	 Closing ,
-	 Closed  ,
+enum NetworkEvent {
+    Open,
+    Error,
+    Closing,
+    Closed,
 }
 
-struct Connection { pharos: Pharos<NetworkEvent> }
-
-impl Observable<NetworkEvent> for Connection
-{
-	type Error = pharos::Error;
-
-	fn observe( &mut self, options: ObserveConfig<NetworkEvent>) -> Result< Events<NetworkEvent>, Self::Error >
-	{
-		 self.pharos.observe( options )
-	}
+struct Connection {
+    pharos: Pharos<NetworkEvent>,
 }
 
-fn main()
-{
-	let mut conn = Connection{ pharos: Pharos::default() };
+impl Observable<NetworkEvent> for Connection {
+    type Error = pharos::Error;
 
-	// We will only get close events.
-	//
-	let filter = Filter::Pointer( |e| e == &NetworkEvent::Closed );
+    fn observe(
+        &mut self,
+        options: ObserveConfig<NetworkEvent>,
+    ) -> Result<Events<NetworkEvent>, Self::Error> {
+        self.pharos.observe(options)
+    }
+}
 
-	// By creating the config object through into, other options will be defaults, notably here
-	// this will use unbounded channels.
-	//
-	let observer = conn.observe( filter.into() ).expect( "observe" );
+fn main() {
+    let mut conn = Connection {
+        pharos: Pharos::default(),
+    };
 
-	// Combine both options.
-	//
-	let filter = Filter::Pointer( |e| e != &NetworkEvent::Closed );
-	let opts   = ObserveConfig::from( filter ).channel( Channel::Bounded(5) );
+    // We will only get close events.
+    //
+    let filter = Filter::Pointer(|e| e == &NetworkEvent::Closed);
 
-	// Get everything but close events over a bounded channel with queue size 5.
-	//
-	let bounded_observer = conn.observe( opts );
+    // By creating the config object through into, other options will be defaults, notably here
+    // this will use unbounded channels.
+    //
+    let observer = conn.observe(filter.into()).expect("observe");
+
+    // Combine both options.
+    //
+    let filter = Filter::Pointer(|e| e != &NetworkEvent::Closed);
+    let opts = ObserveConfig::from(filter).channel(Channel::Bounded(5));
+
+    // Get everything but close events over a bounded channel with queue size 5.
+    //
+    let bounded_observer = conn.observe(opts);
 }

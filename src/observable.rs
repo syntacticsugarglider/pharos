@@ -1,4 +1,4 @@
-use crate :: { Filter, Events };
+use crate::{Events, Filter};
 
 /// Indicate that a type is observable. You can call [`observe`](Observable::observe) to get a
 /// stream of events.
@@ -72,64 +72,55 @@ use crate :: { Filter, Events };
 /// ```
 //
 pub trait Observable<Event>
-
-   where Event: Clone + 'static + Send ,
+where
+    Event: Clone + 'static + Sync + Send,
 {
-   /// The error type that is returned if observing is not possible.
-   ///
-   /// [Pharos](crate::Pharos) implements
-   /// [Sink](https://docs.rs/futures-preview/0.3.0-alpha.19/futures/sink/trait.Sink.html)
-   /// which has a close method, so observing will no longer be possible after close is called.
-   ///
-   /// Other than that, you might want to have moments in your objects lifetime when you don't want to take
-   /// any more observers. Returning a result from [observe](Observable::observe) enables that.
-   ///
-   /// You can of course map the error of pharos to your own error type.
-   //
-   type Error: std::error::Error;
+    /// The error type that is returned if observing is not possible.
+    ///
+    /// [Pharos](crate::Pharos) implements
+    /// [Sink](https://docs.rs/futures-preview/0.3.0-alpha.19/futures/sink/trait.Sink.html)
+    /// which has a close method, so observing will no longer be possible after close is called.
+    ///
+    /// Other than that, you might want to have moments in your objects lifetime when you don't want to take
+    /// any more observers. Returning a result from [observe](Observable::observe) enables that.
+    ///
+    /// You can of course map the error of pharos to your own error type.
+    //
+    type Error: std::error::Error;
 
-   /// Add an observer to the observable. Options allow chosing the channel type and
-   /// to filter events with a predicate.
-   //
-   fn observe( &mut self, options: ObserveConfig<Event> ) -> Result<Events<Event>, Self::Error>;
+    /// Add an observer to the observable. Options allow chosing the channel type and
+    /// to filter events with a predicate.
+    //
+    fn observe(&mut self, options: ObserveConfig<Event>) -> Result<Events<Event>, Self::Error>;
 }
-
-
 
 /// Choose the type of channel that will be used for your event stream. Used in [ObserveConfig].
 //
-#[ derive( Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord )]
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
 //
-pub enum Channel
-{
+pub enum Channel {
+    /// A channel with a limited message queue (the usize parameter). Creates back pressure when the buffer is full.
+    /// This means that producer tasks may block if consumers can't process fast enough.
+    ///
+    /// The minimum valid buffer size is 1.
+    //
+    Bounded(usize),
 
-   /// A channel with a limited message queue (the usize parameter). Creates back pressure when the buffer is full.
-   /// This means that producer tasks may block if consumers can't process fast enough.
-   ///
-   /// The minimum valid buffer size is 1.
-   //
-   Bounded(usize),
+    /// A channel with unbounded capacity. Note that this may lead to unbounded memory consumption if producers
+    /// outpace consumers.
+    //
+    Unbounded,
 
-   /// A channel with unbounded capacity. Note that this may lead to unbounded memory consumption if producers
-   /// outpace consumers.
-   //
-   Unbounded,
-
-   /// This enum might grow in the future, thanks to this that won't be a breaking change.
-   //
-   __NonExhaustive__
+    /// This enum might grow in the future, thanks to this that won't be a breaking change.
+    //
+    __NonExhaustive__,
 }
 
-
-impl Default for Channel
-{
-   fn default() -> Self
-   {
-      Channel::Unbounded
-   }
+impl Default for Channel {
+    fn default() -> Self {
+        Channel::Unbounded
+    }
 }
-
-
 
 /// Configuration for your event stream.
 ///
@@ -168,90 +159,94 @@ impl Default for Channel
 /// pharos.observe( opts );
 /// ```
 //
-#[ derive( Debug ) ]
+#[derive(Debug)]
 //
-pub struct ObserveConfig<Event> where Event: Clone + 'static + Send
+pub struct ObserveConfig<Event>
+where
+    Event: Clone + 'static + Sync + Send,
 {
-   pub(crate) channel: Channel,
-   pub(crate) filter : Option<Filter<Event>>,
+    pub(crate) channel: Channel,
+    pub(crate) filter: Option<Filter<Event>>,
 }
-
-
 
 /// Create a default configuration:
 /// - no filter
 /// - an unbounded channel
 //
-impl<Event> Default for ObserveConfig<Event> where Event: Clone + 'static + Send
+impl<Event> Default for ObserveConfig<Event>
+where
+    Event: Clone + 'static + Sync + Send,
 {
-   fn default() -> Self
-   {
-      Self
-      {
-         channel: Channel::default(),
-         filter : None              ,
-      }
-   }
+    fn default() -> Self {
+        Self {
+            channel: Channel::default(),
+            filter: None,
+        }
+    }
 }
 
-
-
-impl<Event> ObserveConfig<Event> where Event: Clone + 'static + Send
+impl<Event> ObserveConfig<Event>
+where
+    Event: Clone + 'static + Sync + Send,
 {
-   /// Choose which channel implementation to use for your event stream.
-   //
-   pub fn channel( mut self, channel: Channel ) -> Self
-   {
-      self.channel = channel;
-      self
-   }
+    /// Choose which channel implementation to use for your event stream.
+    //
+    pub fn channel(mut self, channel: Channel) -> Self {
+        self.channel = channel;
+        self
+    }
 
+    /// Filter your event stream with a predicate that is a fn pointer.
+    /// You can only set one filter per observable.
+    //
+    pub fn filter(mut self, filter: fn(&Event) -> bool) -> Self {
+        debug_assert!(
+            self.filter.is_none(),
+            "You can only set one filter on ObserveConfig"
+        );
 
-   /// Filter your event stream with a predicate that is a fn pointer.
-   /// You can only set one filter per observable.
-   //
-   pub fn filter( mut self, filter: fn(&Event) -> bool ) -> Self
-   {
-      debug_assert!( self.filter.is_none(), "You can only set one filter on ObserveConfig" );
+        self.filter = Some(Filter::Pointer(filter));
+        self
+    }
 
-      self.filter = Some( Filter::Pointer(filter) );
-      self
-   }
+    /// Filter your event stream with a predicate that is a closure that captures environment.
+    /// It is preferred to use [filter](ObserveConfig::filter) if you can as this will box the closure.
+    /// You can only set one filter per observable.
+    //
+    pub fn filter_boxed(
+        mut self,
+        filter: impl FnMut(&Event) -> bool + Sync + Send + 'static,
+    ) -> Self {
+        debug_assert!(
+            self.filter.is_none(),
+            "You can only set one filter on ObserveConfig"
+        );
 
-
-   /// Filter your event stream with a predicate that is a closure that captures environment.
-   /// It is preferred to use [filter](ObserveConfig::filter) if you can as this will box the closure.
-   /// You can only set one filter per observable.
-   //
-   pub fn filter_boxed( mut self, filter: impl FnMut(&Event) -> bool + Send + 'static ) -> Self
-   {
-      debug_assert!( self.filter.is_none(), "You can only set one filter on ObserveConfig" );
-
-      self.filter = Some( Filter::Closure( Box::new(filter) ) );
-      self
-   }
+        self.filter = Some(Filter::Closure(Box::new(filter)));
+        self
+    }
 }
-
 
 /// Create a [ObserveConfig] from a [Channel], getting default values for other options.
 //
-impl<Event> From<Channel> for ObserveConfig<Event> where Event: Clone + 'static + Send
+impl<Event> From<Channel> for ObserveConfig<Event>
+where
+    Event: Clone + 'static + Sync + Send,
 {
-   fn from( channel: Channel ) -> Self
-   {
-      Self::default().channel( channel )
-   }
+    fn from(channel: Channel) -> Self {
+        Self::default().channel(channel)
+    }
 }
-
 
 /// Create a [ObserveConfig] from a [Filter], getting default values for other options.
 //
-impl<Event> From<Filter<Event>> for ObserveConfig<Event> where Event: Clone + 'static + Send
+impl<Event> From<Filter<Event>> for ObserveConfig<Event>
+where
+    Event: Clone + 'static + Sync + Send,
 {
-   fn from( filter: Filter<Event> ) -> Self
-   {
-      let mut s = Self::default();
-      s.filter = Some( filter );
-      s
-   }
+    fn from(filter: Filter<Event>) -> Self {
+        let mut s = Self::default();
+        s.filter = Some(filter);
+        s
+    }
 }
